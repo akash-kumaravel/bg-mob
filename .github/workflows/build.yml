@@ -1,5 +1,4 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main ]
@@ -8,7 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,15 +17,17 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      # ✅ FIX: Regenerate the wrapper BEFORE setup-gradle validates it
+      - name: Regenerate Gradle wrapper
+        run: |
+          gradle wrapper --gradle-version 9.3.1
+          chmod +x gradlew
+
+      # ✅ FIX: Now setup-gradle sees a freshly generated (known-good) jar
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-
-      - name: Create gradle wrapper
-        run: |
-          gradle wrapper --gradle-version 9.3.1
-          chmod +x gradlew
 
       - name: Create env file
         run: |
@@ -36,10 +36,7 @@ jobs:
 
       - name: Fix icon resources and missing resources
         run: |
-          # Remove only webp files, keep your PNG icons!
           find app/src/main/res -name "*.webp" -path "*/mipmap*" -delete
-
-          # Copy ic_launcher as ic_launcher_round for all sizes
           for folder in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
             if [ -f app/src/main/res/mipmap-$folder/ic_launcher.png ]; then
               cp app/src/main/res/mipmap-$folder/ic_launcher.png \
@@ -47,12 +44,8 @@ jobs:
               echo "Created ic_launcher_round for $folder"
             fi
           done
-
-          # Remove anydpi xml that references missing files
           rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
-
-          # Create missing xml resources
           mkdir -p app/src/main/res/xml
           cat > app/src/main/res/xml/data_extraction_rules.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
@@ -62,14 +55,12 @@ jobs:
               </cloud-backup>
           </data-extraction-rules>
           EOF
-
           cat > app/src/main/res/xml/backup_rules.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <full-backup-content>
               <exclude domain="root" path="."/>
           </full-backup-content>
           EOF
-
           echo "All resources fixed!"
 
       - name: Generate release keystore
