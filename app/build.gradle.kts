@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.memoinfotech.bgwrap"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.bgremover.vqzpt"
+    applicationId = "com.memoinfotech.bgwrap"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
