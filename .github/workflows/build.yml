@@ -3,7 +3,6 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,28 +10,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create env files
+        run: |
+          touch .env.example
+          touch .env
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
 
-      # ✅ FIX: Regenerate the wrapper BEFORE setup-gradle validates it
       - name: Regenerate Gradle wrapper
         run: |
           gradle wrapper --gradle-version 9.3.1
           chmod +x gradlew
 
-      # ✅ FIX: Now setup-gradle sees a freshly generated (known-good) jar
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-
-      - name: Create env file
-        run: |
-          echo "MAPS_API_KEY=placeholder" > .env.example
-          echo "FIREBASE_API_KEY=placeholder" >> .env.example
 
       - name: Fix icon resources and missing resources
         run: |
@@ -77,6 +74,10 @@ jobs:
             -validity 10000
 
       - name: Build Release APK and AAB
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: bgwrap123
+          KEY_PASSWORD: bgwrap123
         run: |
           ./gradlew assembleRelease --stacktrace
           ./gradlew bundleRelease --stacktrace
