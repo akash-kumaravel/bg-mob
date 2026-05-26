@@ -23,7 +23,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -86,11 +85,11 @@ fun EditorScreen(
 
     var showExportSheet by remember { mutableStateOf(false) }
 
-    // Haptics controller using Compose native safe HapticFeedback API
-    val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
+    // Haptics controller
+    val vibrator = remember { context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator }
     fun performHapticClick() {
         try {
-            hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            vibrator?.vibrate(30)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -120,7 +119,7 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    if (cutoutBmp != null) {
+                    if (originalBmp != null) {
                         IconButton(
                             onClick = {
                                 performHapticClick()
@@ -291,10 +290,10 @@ fun EditorScreen(
             }
 
             // Export Settings Bottom Sheet Overlay Drawer
-            if (showExportSheet && cutoutBmp != null) {
+            if (showExportSheet && originalBmp != null) {
                 ExportBottomSheet(
                     viewModel = viewModel,
-                    subject = cutoutBmp!!,
+                    subject = cutoutBmp ?: originalBmp!!,
                     onDismiss = { showExportSheet = false },
                     performHaptic = { performHapticClick() }
                 )
@@ -386,18 +385,9 @@ fun InteractivePreviewArea(
 
                 // 1. Draw Transparent grid as backdrop
                 val checkWidth = 12.dp.toPx()
-                val stepSize = maxOf(1, checkWidth.toInt())
-                
-                // Constrain checkerboard loop to viewport space to prevent quadratic iteration count explosions under high zoom levels
-                val startX = (maxOf(targetLeft.toInt(), 0) - targetLeft.toInt()) / stepSize * stepSize + targetLeft.toInt()
-                val endX = minOf((targetLeft + targetSize.width).toInt(), width.toInt())
-                
-                val startY = (maxOf(targetTop.toInt(), 0) - targetTop.toInt()) / stepSize * stepSize + targetTop.toInt()
-                val endY = minOf((targetTop + targetSize.height).toInt(), height.toInt())
-
-                for (currX in startX..endX step stepSize) {
-                    for (currY in startY..endY step stepSize) {
-                        val isWhite = (((currX - targetLeft.toInt()) / stepSize) + (((currY - targetTop.toInt()) / stepSize))) % 2 == 0
+                for (currX in targetLeft.toInt()..(targetLeft + targetSize.width).toInt() step checkWidth.toInt()) {
+                    for (currY in targetTop.toInt()..(targetTop + targetSize.height).toInt() step checkWidth.toInt()) {
+                        val isWhite = ((currX / checkWidth.toInt()) + (currY / checkWidth.toInt())) % 2 == 0
                         drawRect(
                             color = if (isWhite) Color.White else Color(0xFFF1F5F9),
                             topLeft = Offset(currX.toFloat(), currY.toFloat()),
@@ -498,34 +488,24 @@ fun InteractivePreviewArea(
 
         // Before After Sliding Split-bar (display only when Compare is active)
         if (isComparing) {
-            val screenWidthPx = LocalContext.current.resources.displayMetrics.widthPixels.toFloat()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
             ) {
-                // Drag Slider gesture line target (wider 48.dp touch area)
+                // Drag Slider gesture line target
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(48.dp)
+                        .width(4.dp)
+                        .background(BrandPrimary)
                         .align(Alignment.CenterStart)
-                        .offset(x = (((LocalContext.current.resources.displayMetrics.widthPixels / LocalContext.current.resources.displayMetrics.density) * splitPosition) - 24f).dp)
+                        .offset(x = (((LocalContext.current.resources.displayMetrics.widthPixels / LocalContext.current.resources.displayMetrics.density) * splitPosition) - 2f).dp)
                         .pointerInput(Unit) {
-                            detectHorizontalDragGestures { change, dragAmount ->
-                                change.consume()
-                                splitPosition = (splitPosition + dragAmount / screenWidthPx).coerceIn(0.05f, 0.95f)
+                            detectTransformGestures { _, pan, _, _ ->
+                                splitPosition = (splitPosition + pan.x / size.width).coerceIn(0.05f, 0.95f)
                             }
                         }
                 ) {
-                    // Slim visual line centered inside touch target
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(4.dp)
-                            .background(BrandPrimary)
-                            .align(Alignment.Center)
-                    )
-
                     // Central floating handle button
                     Box(
                         modifier = Modifier
@@ -594,13 +574,34 @@ fun EditorBottomControlCard(
                     .padding(16.dp)
                     .height(130.dp)
             ) {
-                if (!cutoutAvailable) {
+                val toolsRequiringCutout = listOf("background", "blur", "shadow")
+                if (!cutoutAvailable && activeTool in toolsRequiringCutout) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Background not removed yet", fontWeight = FontWeight.Bold, color = BrandSecondary, fontSize = 14.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = onTriggerRemoveBg,
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("ai_cutout_trigger")
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Isolate Cutout with AI", fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+                } else if (!cutoutAvailable && activeTool == "remove_bg") {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Isolate cutout using spark AI model", fontWeight = FontWeight.Bold, color = BrandSecondary, fontSize = 14.sp)
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = onTriggerRemoveBg,
@@ -753,7 +754,6 @@ data class CropRatioData(val name: String, val bounds: RectF)
 @Composable
 fun LocalBackgroundTypeSelector(viewModel: RemBgViewModel, onCustomBgClick: () -> Unit) {
     val bgType by viewModel.backgroundType.collectAsState()
-    var showColorPicker by remember { mutableStateOf(false) }
     
     val solids = listOf(Color.White, Color.Black, Color(0xFFEF4444), Color(0xFF10B981), Color(0xFF3B82F6), Color(0xFFFBBF24))
     val gradients = listOf(
@@ -790,10 +790,8 @@ fun LocalBackgroundTypeSelector(viewModel: RemBgViewModel, onCustomBgClick: () -
 
         // Horizontal Category Selectors
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Transparent selection node
@@ -825,38 +823,6 @@ fun LocalBackgroundTypeSelector(viewModel: RemBgViewModel, onCustomBgClick: () -
                 )
             }
 
-            // Custom Color Picker Button
-            val isCustomActive = bgType == BgType.SOLID && !solids.contains(viewModel.selectedSolidColor.value)
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.sweepGradient(
-                            listOf(
-                                Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red
-                            )
-                        )
-                    )
-                    .border(
-                        if (isCustomActive) 3.dp else 1.dp,
-                        if (isCustomActive) BrandPrimary else Color.White.copy(alpha = 0.5f),
-                        CircleShape
-                    )
-                    .clickable {
-                        showColorPicker = true
-                    }
-                    .testTag("custom_color_picker_button"),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Palette,
-                    contentDescription = "Custom Color Selector",
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
             // Gradients preset rows
             gradients.forEach { list ->
                 val isSelected = bgType == BgType.GRADIENT && viewModel.selectedGradientColors.value == list
@@ -874,224 +840,6 @@ fun LocalBackgroundTypeSelector(viewModel: RemBgViewModel, onCustomBgClick: () -
             }
         }
     }
-
-    if (showColorPicker) {
-        CustomColorPickerDialog(
-            initialColor = viewModel.selectedSolidColor.value,
-            onDismiss = { showColorPicker = false },
-            onColorSelected = { col ->
-                viewModel.selectedSolidColor.value = col
-                viewModel.backgroundType.value = BgType.SOLID
-                showColorPicker = false
-            }
-        )
-    }
-}
-
-@Composable
-fun CustomColorPickerDialog(
-    initialColor: Color,
-    onDismiss: () -> Unit,
-    onColorSelected: (Color) -> Unit
-) {
-    var red by remember { mutableFloatStateOf(initialColor.red * 255f) }
-    var green by remember { mutableFloatStateOf(initialColor.green * 255f) }
-    var blue by remember { mutableFloatStateOf(initialColor.blue * 255f) }
-    
-    val currentColor = remember(red, green, blue) {
-        Color(red.toInt(), green.toInt(), blue.toInt())
-    }
-    
-    val hexString = remember(currentColor) {
-        String.format("#%02X%02X%02X", red.toInt(), green.toInt(), blue.toInt())
-    }
-    
-    val swatches = listOf(
-        Color(0xFFF43F5E), // Rose Accent
-        Color(0xFFEC4899), // Pink Charm
-        Color(0xFF8B5CF6), // Royal Violet
-        Color(0xFF3B82F6), // Vibrant Blue
-        Color(0xFF06B6D4), // Cool Teal/Cyan
-        Color(0xFF10B981), // Fresh Mint
-        Color(0xFFEAB308), // Sunlight Yellow
-        Color(0xFFF97316), // Tangy Orange
-        Color(0xFF78350F), // Warm Chestnut
-        Color(0xFF475569), // Minimalist Slate
-        Color(0xFF1E293B), // Modern Off-Black
-        Color(0xFFE2E8F0)  // Elegant Off-White
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Palette, contentDescription = null, tint = BrandPrimary)
-                Text("Pick Custom Color", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = BrandSecondary)
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Live Color Display Area
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(currentColor)
-                        .border(1.dp, Color.LightGray.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                        .height(84.dp)
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val luminance = (red * 0.299f + green * 0.587f + blue * 0.114f)
-                    val textColor = if (luminance > 186f) Color.Black else Color.White
-                    
-                    Text(
-                        "Preview",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = textColor
-                    )
-                    
-                    Surface(
-                        color = textColor.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            hexString,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            color = textColor,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-                
-                // Red Slider
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Red", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BrandSecondary)
-                        Text(red.toInt().toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
-                    }
-                    Slider(
-                        value = red,
-                        onValueChange = { red = it },
-                        valueRange = 0f..255f,
-                        modifier = Modifier.testTag("slider_red"),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFFEF4444),
-                            activeTrackColor = Color(0xFFEF4444).copy(alpha = 0.4f)
-                        )
-                    )
-                }
-
-                // Green Slider
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Green", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BrandSecondary)
-                        Text(green.toInt().toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
-                    }
-                    Slider(
-                        value = green,
-                        onValueChange = { green = it },
-                        valueRange = 0f..255f,
-                        modifier = Modifier.testTag("slider_green"),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFF10B981),
-                            activeTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
-                        )
-                    )
-                }
-
-                // Blue Slider
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Blue", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BrandSecondary)
-                        Text(blue.toInt().toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF3B82F6))
-                    }
-                    Slider(
-                        value = blue,
-                        onValueChange = { blue = it },
-                        valueRange = 0f..255f,
-                        modifier = Modifier.testTag("slider_blue"),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFF3B82F6),
-                            activeTrackColor = Color(0xFF3B82F6).copy(alpha = 0.4f)
-                        )
-                    )
-                }
-                
-                // Color Swatches Row
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Popular Palette Colors", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        swatches.forEach { swatch ->
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(swatch)
-                                    .border(
-                                        width = if (currentColor == swatch) 2.dp else 1.dp,
-                                        color = if (currentColor == swatch) BrandPrimary else Color.LightGray.copy(alpha = 0.5f),
-                                        shape = CircleShape
-                                    )
-                                    .clickable {
-                                        red = swatch.red * 255f
-                                        green = swatch.green * 255f
-                                        blue = swatch.blue * 255f
-                                    }
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onColorSelected(currentColor) },
-                colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
-                modifier = Modifier.testTag("color_picker_dialog_select")
-            ) {
-                Text("Select", color = Color.White)
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.testTag("color_picker_dialog_cancel")
-            ) {
-                Text("Cancel", color = BrandSecondary)
-            }
-        }
-    )
 }
 
 @Composable
@@ -1335,71 +1083,35 @@ fun ExportBottomSheet(
                                     // Draw foreground cutout
                                     canvas.drawBitmap(subject, 0f, 0f, null)
                                     
+                                    val resolver = context.contentResolver
                                     val filename = "BGWrap_${System.currentTimeMillis()}.${if (isPngTransparent) "png" else "jpg"}"
                                     val mimeType = if (isPngTransparent) "image/png" else "image/jpeg"
-                                    var isSavedSuccessfully = false
                                     
-                                    // Route 1: Try MediaStore insert
-                                    try {
-                                        val resolver = context.contentResolver
-                                        val contentValues = ContentValues().apply {
-                                            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                                            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                                put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/BGWrap")
-                                                put(MediaStore.MediaColumns.IS_PENDING, 1)
-                                            }
+                                    val contentValues = ContentValues().apply {
+                                        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/BGWrap")
+                                            put(MediaStore.MediaColumns.IS_PENDING, 1)
                                         }
-                                        
-                                        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                                        if (uri != null) {
-                                            resolver.openOutputStream(uri).use { out ->
-                                                if (out != null) {
-                                                    isSavedSuccessfully = resultBmp.compress(
-                                                        if (isPngTransparent) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
-                                                        compressionValue.toInt(),
-                                                        out
-                                                    )
-                                                }
-                                            }
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                                contentValues.clear()
-                                                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                                                resolver.update(uri, contentValues, null, null)
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
                                     }
                                     
-                                    // Route 2: Fallback to direct public writing to Pictures/BGWrap
-                                    if (!isSavedSuccessfully) {
-                                        try {
-                                            val publicDir = File(
-                                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
-                                                "BGWrap"
-                                            )
-                                            if (!publicDir.exists()) {
-                                                publicDir.mkdirs()
-                                            }
-                                            val destFile = File(publicDir, filename)
-                                            destFile.outputStream().use { out ->
+                                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                                    var isSavedSuccessfully = false
+                                    if (uri != null) {
+                                        resolver.openOutputStream(uri).use { out ->
+                                            if (out != null) {
                                                 isSavedSuccessfully = resultBmp.compress(
                                                     if (isPngTransparent) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                                                     compressionValue.toInt(),
                                                     out
-                                                 )
+                                                )
                                             }
-                                            
-                                            if (isSavedSuccessfully) {
-                                                android.media.MediaScannerConnection.scanFile(
-                                                    context.applicationContext,
-                                                    arrayOf(destFile.absolutePath),
-                                                    arrayOf(mimeType)
-                                                ) { _, _ -> }
-                                            }
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
+                                        }
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                            contentValues.clear()
+                                            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                                            resolver.update(uri, contentValues, null, null)
                                         }
                                     }
                                     

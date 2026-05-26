@@ -3,6 +3,7 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
+  alias(libs.plugins.secrets)
 }
 
 android {
@@ -23,9 +24,9 @@ android {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD") ?: "bgwrap123"
+      storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD") ?: "bgwrap123"
+      keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -57,10 +58,18 @@ android {
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
+// Configure the Secrets Gradle Plugin to use .env and .env.example files
+// to match the convention used in Web projects.
+secrets {
+  propertiesFileName = ".env"
+  defaultPropertiesFileName = ".env.example"
+}
+
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
+  implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   // implementation(libs.androidx.camera.camera2)
@@ -83,6 +92,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
+  // implementation(libs.firebase.ai)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
@@ -109,84 +119,3 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
-
-tasks.register("generateReleaseKeystore") {
-    doLast {
-        val keystoreFile = file("${rootDir}/my-upload-key.jks")
-        if (!keystoreFile.exists()) {
-            println("Generating release keystore at: ${keystoreFile.absolutePath}")
-            val cmd = listOf(
-                "keytool", "-genkeypair",
-                "-alias", "upload",
-                "-keyalg", "RSA",
-                "-keysize", "2048",
-                "-validity", "10000",
-                "-keystore", keystoreFile.absolutePath,
-                "-storepass", "bgwrap123",
-                "-keypass", "bgwrap123",
-                "-dname", "CN=BGWrap, OU=AIStudio, O=Google, L=MountainView, S=California, C=US"
-            )
-            println("Running command: ${cmd.joinToString(" ")}")
-            val process = ProcessBuilder(cmd).start()
-            val exitCode = process.waitFor()
-            if (exitCode == 0) {
-                println("Release keystore generated successfully!")
-            } else {
-                val errorStream = process.errorStream.bufferedReader().readText()
-                println("Error generating keystore. Exit code: $exitCode. Error: $errorStream")
-            }
-        } else {
-            println("Release keystore already exists.")
-        }
-    }
-}
-
-tasks.register("copyReleaseBinaries") {
-    dependsOn("assembleRelease", "bundleRelease", "assembleDebug")
-    doLast {
-        val apkFile = file("${project.layout.buildDirectory.get().asFile}/outputs/apk/release/app-release.apk")
-        val aabFile = file("${project.layout.buildDirectory.get().asFile}/outputs/bundle/release/app-release.aab")
-        val debugApkFile = file("${project.layout.buildDirectory.get().asFile}/outputs/apk/debug/app-debug.apk")
-        
-        // Target absolute workspace /.build-outputs/ directory in rootDir
-        val buildOutputsDir = file("${rootDir}/.build-outputs")
-        if (!buildOutputsDir.exists()) {
-            buildOutputsDir.mkdirs()
-        }
-
-        val apkDestBuildOutputs = file("${rootDir}/.build-outputs/release.apk")
-        val aabDestBuildOutputs = file("${rootDir}/.build-outputs/release.aab")
-        val debugApkDestBuildOutputs = file("${rootDir}/.build-outputs/app-debug.apk")
-        
-        fun printSize(f: java.io.File, name: String) {
-            val sizeInMb = f.length().toDouble() / (1024 * 1024)
-            println("FILE INFO: $name is %.2f MB (${f.length()} bytes) at ${f.absolutePath}")
-        }
-        
-        if (apkFile.exists()) {
-            apkFile.copyTo(apkDestBuildOutputs, overwrite = true)
-            println("SUCCESS: Copied release APK to ${rootDir}/.build-outputs/release.apk")
-            printSize(apkDestBuildOutputs, "apkDestBuildOutputs")
-        } else {
-            println("WARNING: Release APK not found at: ${apkFile.absolutePath}")
-        }
-        
-        if (aabFile.exists()) {
-            aabFile.copyTo(aabDestBuildOutputs, overwrite = true)
-            println("SUCCESS: Copied release AAB to ${rootDir}/.build-outputs/release.aab")
-            printSize(aabDestBuildOutputs, "aabDestBuildOutputs")
-        } else {
-            println("WARNING: Release AAB not found at: ${aabFile.absolutePath}")
-        }
-
-        if (debugApkFile.exists()) {
-            debugApkFile.copyTo(debugApkDestBuildOutputs, overwrite = true)
-            println("SUCCESS: Copied debug APK to ${rootDir}/.build-outputs/app-debug.apk")
-            printSize(debugApkDestBuildOutputs, "debugApkDestBuildOutputs")
-        } else {
-            println("WARNING: Debug APK not found at: ${debugApkFile.absolutePath}")
-        }
-    }
-}
-
-
