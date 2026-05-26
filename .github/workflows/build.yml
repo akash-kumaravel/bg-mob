@@ -60,19 +60,6 @@ jobs:
           EOF
           echo "All resources fixed!"
 
-      - name: Generate release keystore
-        run: |
-          rm -f my-upload-key.jks
-          keytool -genkeypair \
-            -alias upload \
-            -keypass bgwrap123 \
-            -keystore my-upload-key.jks \
-            -storepass bgwrap123 \
-            -dname "CN=BGWrap,O=BGWrap,C=US" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000
-
       - name: Build Release APK and AAB
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
