@@ -354,12 +354,12 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                     val origPath = repository.saveUriToFile(stream, "bulk_orig")
                     item.originalPath = origPath
                     
-                    updateBulkItemStatus(item.id, BulkStatus.PROCESSING, 0.4f)
+                    updateBulkItemStatus(item.id, BulkStatus.PROCESSING, 0.4f, originalPath = origPath)
                     
                     // Call API using temp file saved
                     val res = apiService.removeBackground(File(origPath))
                     
-                    updateBulkItemStatus(item.id, BulkStatus.PROCESSING, 0.8f)
+                    updateBulkItemStatus(item.id, BulkStatus.PROCESSING, 0.8f, originalPath = origPath)
                     
                     val processedPath = repository.saveBase64ToFile(res.image, "bulk_cutout")
                     val maskPath = repository.saveBase64ToFile(res.mask, "bulk_mask")
@@ -375,10 +375,10 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                     )
                     repository.insert(proj)
                     
-                    updateBulkItemStatus(item.id, BulkStatus.SUCCESS, 1.0f)
+                    updateBulkItemStatus(item.id, BulkStatus.SUCCESS, 1.0f, originalPath = origPath, processedPath = processedPath)
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    updateBulkItemStatus(item.id, BulkStatus.FAILED, 1.0f, e.localizedMessage ?: "API error")
+                    updateBulkItemStatus(item.id, BulkStatus.FAILED, 1.0f, error = e.localizedMessage ?: "API error")
                 }
             }
             
@@ -386,10 +386,23 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
         }
     }
 
-    private fun updateBulkItemStatus(id: String, status: BulkStatus, progress: Float, error: String? = null) {
+    private fun updateBulkItemStatus(
+        id: String,
+        status: BulkStatus,
+        progress: Float,
+        originalPath: String? = null,
+        processedPath: String? = null,
+        error: String? = null
+    ) {
         val updated = bulkQueue.value.map { item ->
             if (item.id == id) {
-                item.copy(status = status, progress = progress, error = error)
+                item.copy(
+                    status = status,
+                    progress = progress,
+                    originalPath = originalPath ?: item.originalPath,
+                    processedPath = processedPath ?: item.processedPath,
+                    error = error
+                )
             } else {
                 item
             }
@@ -433,9 +446,10 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                             }
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            contentValues.clear()
-                            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                            resolver.update(uri, contentValues, null, null)
+                            val updateValues = ContentValues().apply {
+                                put(MediaStore.MediaColumns.IS_PENDING, 0)
+                            }
+                            resolver.update(uri, updateValues, null, null)
                         }
                     }
                     writeSuccess
@@ -491,9 +505,10 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                                 }
                             }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                contentValues.clear()
-                                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                                resolver.update(uri, contentValues, null, null)
+                                val updateValues = ContentValues().apply {
+                                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                                }
+                                resolver.update(uri, updateValues, null, null)
                             }
                             count++
                         }

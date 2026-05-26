@@ -324,30 +324,30 @@ fun BulkStatusHeader(
                     Text("Clear", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                 }
             }
+        }
 
-            if (successCount > 0) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onSaveAllToGallery,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("bulk_save_all_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Save All",
-                        tint = Color.White
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Save All to Gallery ($successCount)",
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
+        if (successCount > 0) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onSaveAllToGallery,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("bulk_save_all_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowDownward,
+                    contentDescription = "Save All",
+                    tint = Color.White
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Save All to Gallery ($successCount)",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
     }
